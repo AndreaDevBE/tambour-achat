@@ -1,9 +1,10 @@
 from decimal import Decimal
 
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 
-from achats.models import Product, Purchase, PurchaseLine, Supplier
+from achats.models import Product, Purchase, PurchaseLine, Supplier, TechnicalSettings
 
 
 class SupplierSerializer(serializers.ModelSerializer):
@@ -76,6 +77,25 @@ class PurchaseSerializer(serializers.ModelSerializer):
             Decimal("0.00"),
         )
 
+    def validate_received_date(self, value):
+        if value is not None and value > timezone.localdate():
+            raise serializers.ValidationError(
+                "La date de réception ne peut pas être dans le futur."
+            )
+        return value
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if (
+            self.instance is not None
+            and "status" in attrs
+            and attrs["status"] != self.instance.status
+        ):
+            raise serializers.ValidationError(
+                {"status": "Utilisez l’action de transition pour changer le statut."}
+            )
+        return attrs
+
     @transaction.atomic
     def create(self, validated_data):
         lines_data = validated_data.pop("lines")
@@ -100,3 +120,17 @@ class PurchaseSerializer(serializers.ModelSerializer):
                 ]
             )
         return instance
+
+
+class TechnicalSettingsSerializer(serializers.ModelSerializer):
+    received_purchase_retention_days = serializers.IntegerField(
+        min_value=1, max_value=3650
+    )
+
+    class Meta:
+        model = TechnicalSettings
+        fields = ["received_purchase_retention_days"]
+
+
+class PurchaseTransitionSerializer(serializers.Serializer):
+    status = serializers.ChoiceField(choices=Purchase.Status.choices)

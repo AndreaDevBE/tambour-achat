@@ -1,5 +1,6 @@
 from django.db import models
 from django.db.models import Q
+from django.utils import timezone
 
 
 class Supplier(models.Model):
@@ -51,7 +52,9 @@ class Purchase(models.Model):
     status = models.CharField(
         "statut", max_length=20, choices=Status.choices, default=Status.PLANNED
     )
-    planned_date = models.DateField("date prévue", blank=True, null=True)
+    planned_date = models.DateField(
+        "date prévue", blank=True, null=True, default=timezone.localdate
+    )
     ordered_date = models.DateField("date de commande", blank=True, null=True)
     received_date = models.DateField("date de réception", blank=True, null=True)
     notes = models.TextField("notes", blank=True)
@@ -65,6 +68,19 @@ class Purchase(models.Model):
 
     def __str__(self):
         return f"Achat #{self.pk} — {self.supplier}"
+
+
+class TechnicalSettings(models.Model):
+    received_purchase_retention_days = models.PositiveIntegerField(
+        "durée de conservation des achats reçus (jours)", default=30
+    )
+
+    class Meta:
+        verbose_name = "paramètre technique"
+        verbose_name_plural = "paramètres techniques"
+
+    def __str__(self):
+        return "Paramètres techniques"
 
 
 class PurchaseLine(models.Model):

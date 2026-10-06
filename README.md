@@ -23,9 +23,16 @@ React / TypeScript / Vite, dans le dossier `frontend/`.
 
 Représent un achat de matérieux ou composant à des prestataires extérieurs. 
 Les achats doivent être encodées dans l'application à partir du moment où on prévoit de le faire. Nous pouvons faire évoluter à travers différents statut : 
-- A prévoir
-- Commandé
-- Reçu 
+A prévoir -> Commandé -> Reçu
+
+A la création d'un achat, le seul statut possible est "à prévoir" et la date correspondante est mise à la date du jour. Le statut et la date sont simplement affiché et il uniquement possible de changer la date. Les autres dates ne sont tout simplement pas affichés.
+
+#### Board de suivi des achats
+
+Les achats sont gérer dans un tableau à plusieurs colonnes (une colonne par statut). Je peux choisir de faire un drag & drop de cette achat (sous forme de carte) d'une colonne à l'autre, et cela à pour effet d'adapter le statut et les dates correspondantes.
+Bien que les dates soit visible sur les cartes, je peux décider de les adapters à la volée.
+La carte doit contenir toutes les informations nécessaires.
+Les cartes reçues depuis plus de 30 jours ne sont plus affichées dans le board de suivi. Cette durée est réglable dans le menu « Administration technique ». Les achats restent conservés et accessibles dans la liste « Achats ». Une date de réception future est refusée. Lors d'un retour à un statut précédent, les dates des étapes ultérieures sont effacées.
 
 ### Stock
 
@@ -63,9 +70,16 @@ L'API JSON est disponible sous `http://127.0.0.1:8000/api/` :
 
 - `fournisseurs/` : créer et gérer les fournisseurs.
 - `produits/` : créer et gérer les produits achetables.
-- `achats/` : créer et gérer les achats avec leurs lignes, dates et statuts (`planned`, `ordered`, `received`).
+- `achats/` : créer et gérer les achats avec leurs lignes, dates et statuts (`planned`, `ordered`, `received`). Le statut se change avec `POST achats/{id}/transition/` et un corps `{"status":"ordered"}` (ou `planned` / `received`) ; l'API renseigne la date de l'étape et efface les dates des étapes ultérieures si l'on revient en arrière.
+- `parametres-techniques/` : lire ou modifier `received_purchase_retention_days` avec `GET` ou `PUT`, dans une plage de 1 à 3 650 jours (30 jours par défaut).
 
 La création ou la mise à jour d'un achat accepte les lignes dans le champ `lines`. Chaque ligne référence un produit et contient une quantité strictement positive et un prix unitaire positif ou nul. Le total est calculé par l'API. Pour lancer les tests : `python manage.py test`.
+
+### Préserver les données lors des évolutions
+
+Les migrations Django ajoutent les changements de schéma sans réinitialiser la base. Pour appliquer celles d'une nouvelle version, exécutez `python manage.py migrate` depuis `backend\` ; la migration du suivi des achats ajoute le réglage de rétention et ne supprime aucun achat existant. Les données déjà présentes, y compris les dates nulles, sont conservées.
+
+Pour les prochaines fonctionnalités, créez et conservez les migrations (`python manage.py makemigrations`), puis appliquez-les avec `python manage.py migrate`. Ne supprimez pas `db.sqlite3` et ne supprimez ni ne modifiez les migrations déjà appliquées pour « repartir à zéro ». Avant toute évolution de schéma sur une instance qui contient des données importantes, arrêtez le serveur et faites une copie de sauvegarde de `backend\db.sqlite3`.
 
 Cette API de développement n'est pas authentifiée. Ne pas exposer le serveur à un réseau non fiable sans ajouter l'authentification et une configuration de production.
 
