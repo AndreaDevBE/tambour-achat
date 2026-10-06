@@ -2,9 +2,11 @@ import type {
   Product,
   ProductWrite,
   Purchase,
+  PurchaseStatus,
   PurchaseWrite,
   Supplier,
   SupplierWrite,
+  TechnicalSettings,
 } from "./types";
 
 const apiBase = (import.meta.env.VITE_API_BASE_URL || "/api").replace(/\/+$/, "");
@@ -105,6 +107,27 @@ export const api = {
       method: id ? "PUT" : "POST",
       body: JSON.stringify(data),
     }),
+  transitionPurchase: (id: number, status: PurchaseStatus) =>
+    request<Purchase>(`${itemPath("achats", id)}transition/`, {
+      method: "POST",
+      body: JSON.stringify({ status }),
+    }),
+  updatePurchaseDate: (
+    id: number,
+    date: Partial<Pick<Purchase, "planned_date" | "ordered_date" | "received_date">>,
+  ) =>
+    request<Purchase>(itemPath("achats", id), {
+      method: "PATCH",
+      body: JSON.stringify(date),
+    }),
   deletePurchase: (id: number) =>
     requestVoid(itemPath("achats", id), { method: "DELETE" }),
+
+  getTechnicalSettings: () =>
+    request<TechnicalSettings>("/parametres-techniques/"),
+  saveTechnicalSettings: (data: TechnicalSettings) =>
+    request<TechnicalSettings>("/parametres-techniques/", {
+      method: "PUT",
+      body: JSON.stringify(data),
+    }),
 };

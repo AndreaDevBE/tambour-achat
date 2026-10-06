@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { ApiError, api } from "./api";
+import { getBoardPurchases } from "./purchaseBoard";
 import type {
   Product,
   ProductWrite,
@@ -12,7 +13,8 @@ import type {
   SupplierWrite,
 } from "./types";
 
-type Section = "achats" | "fournisseurs" | "produits";
+type EntitySection = "achats" | "fournisseurs" | "produits";
+type Section = EntitySection | "suivi-achats" | "admin-technique";
 type Data = {
   fournisseurs: Supplier[];
   produits: Product[];
@@ -23,21 +25,30 @@ type FormResult =
   | { section: "produits"; payload: ProductWrite }
   | { section: "achats"; payload: PurchaseWrite };
 type EditTarget = {
-  section: Section;
+  section: EntitySection;
   item: Supplier | Product | Purchase | null;
 };
 
 const sectionLabels: Record<Section, string> = {
   achats: "Achats",
+  "suivi-achats": "Suivi des achats",
   fournisseurs: "Fournisseurs",
   produits: "Produits",
+  "admin-technique": "Administration technique",
 };
 
-const itemLabels: Record<Section, string> = {
+const itemLabels: Record<EntitySection, string> = {
   achats: "Achat",
   fournisseurs: "Fournisseur",
   produits: "Produit",
 };
+const navigationSections: Section[] = [
+  "achats",
+  "suivi-achats",
+  "fournisseurs",
+  "produits",
+  "admin-technique",
+];
 
 const statusLabels: Record<PurchaseStatus, string> = {
   planned: "À prévoir",
@@ -46,6 +57,10 @@ const statusLabels: Record<PurchaseStatus, string> = {
 };
 
 const emptyData: Data = { fournisseurs: [], produits: [], achats: [] };
+
+function isEntitySection(section: Section): section is EntitySection {
+  return section === "achats" || section === "fournisseurs" || section === "produits";
+}
 
 function formatMoney(value: string | number): string {
   return `${new Intl.NumberFormat("fr-BE", {
@@ -62,6 +77,13 @@ function formatDate(value: string | null): string {
   );
 }
 
+function localDateString(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+
 function getErrorMessage(error: unknown): string {
   return error instanceof ApiError
     ? error.message
@@ -76,17 +98,21 @@ export default function App() {
   const [notice, setNotice] = useState("");
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [saveError, setSaveError] = useState("");
+  const [retentionDays, setRetentionDays] = useState("30");
+  const [savingSettings, setSavingSettings] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
-      const [fournisseurs, produits, achats] = await Promise.all([
+      const [fournisseurs, produits, achats, settings] = await Promise.all([
         api.listSuppliers(),
         api.listProducts(),
         api.listPurchases(),
+        api.getTechnicalSettings(),
       ]);
       setData({ fournisseurs, produits, achats });
+      setRetentionDays(String(settings.received_purchase_retention_days));
     } catch (loadError) {
       setError(getErrorMessage(loadError));
     } finally {
@@ -126,7 +152,7 @@ export default function App() {
     }
   }
 
-  async function deleteItem(targetSection: Section, id: number, label: string) {
+  async function deleteItem(targetSection: EntitySection, id: number, label: string) {
     if (!window.confirm(`Supprimer « ${label} » ? Cette action est définitive.`)) {
       return;
     }
@@ -143,7 +169,7 @@ export default function App() {
     }
   }
 
-  function actions(targetSection: Section, id: number, label: string) {
+  function actions(targetSection: EntitySection, id: number, label: string) {
     return (
       <div className="row-actions">
         <button
@@ -175,7 +201,68 @@ export default function App() {
     );
   }
 
-  const count = data[section].length;
+  const boardPurchases = getBoardPurchases(data.achats, Number(retentionDays) || 30);
+  const count =
+    section === "achats"
+      ? data.achats.length
+      : section === "fournisseurs"
+        ? data.fournisseurs.length
+        : section === "produits"
+          ? data.produits.length
+          : section === "suivi-achats"
+            ? boardPurchases.length
+            : 0;
+
+  async function movePurchase(purchase: Purchase, status: PurchaseStatus) {
+    if (purchase.status === status) return;
+    setError("");
+    setNotice("");
+    try {
+      await api.transitionPurchase(purchase.id, status);
+      setNotice(`Achat #${purchase.id} déplacé vers « ${statusLabels[status]} ».`);
+      await loadData();
+    } catch (transitionError) {
+      setError(getErrorMessage(transitionError));
+    }
+  }
+
+  async function changePurchaseDate(
+    purchase: Purchase,
+    status: PurchaseStatus,
+    value: string,
+  ) {
+    const dateField = {
+      planned: "planned_date",
+      ordered: "ordered_date",
+      received: "received_date",
+    }[status];
+    setError("");
+    setNotice("");
+    try {
+      await api.updatePurchaseDate(purchase.id, { [dateField]: value || null });
+      await loadData();
+    } catch (dateError) {
+      setError(getErrorMessage(dateError));
+    }
+  }
+
+  async function saveSettings(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSavingSettings(true);
+    setError("");
+    setNotice("");
+    try {
+      const settings = await api.saveTechnicalSettings({
+        received_purchase_retention_days: Number(retentionDays),
+      });
+      setRetentionDays(String(settings.received_purchase_retention_days));
+      setNotice("Paramètre enregistré.");
+    } catch (settingsError) {
+      setError(getErrorMessage(settingsError));
+    } finally {
+      setSavingSettings(false);
+    }
+  }
 
   return (
     <div className="app-shell">
@@ -189,8 +276,7 @@ export default function App() {
         </a>
         <p className="nav-heading">GESTION</p>
         <nav aria-label="Navigation principale" className="main-nav">
-          {(["achats", "fournisseurs", "produits"] as Section[]).map(
-            (item, index) => (
+          {navigationSections.map((item, index) => (
               <button
                 aria-current={section === item ? "page" : undefined}
                 className={`nav-link ${section === item ? "active" : ""}`}
@@ -202,15 +288,17 @@ export default function App() {
                 type="button"
               >
                 <span aria-hidden="true" className="nav-number">
-                  0{index + 1}
+                  {String(index + 1).padStart(2, "0")}
                 </span>
                 {sectionLabels[item]}
                 {item === "achats" && data.achats.length > 0 && (
                   <span className="nav-count">{data.achats.length}</span>
                 )}
+                {item === "suivi-achats" && boardPurchases.length > 0 && (
+                  <span className="nav-count">{boardPurchases.length}</span>
+                )}
               </button>
-            ),
-          )}
+          ))}
         </nav>
         <div className="sidebar-footer">
           <span className="connection-dot" />
@@ -225,21 +313,25 @@ export default function App() {
             <h1>{sectionLabels[section]}</h1>
             <p className="page-description">
               {section === "achats" && "Suivez vos commandes, de la prévision à la réception."}
+              {section === "suivi-achats" && "Faites avancer vos achats et mettez leurs dates à jour."}
               {section === "fournisseurs" && "Retrouvez et gérez vos partenaires d’approvisionnement."}
               {section === "produits" && "Gérez les matériaux et composants que vous achetez."}
+              {section === "admin-technique" && "Configurez les paramètres de suivi de l’application."}
             </p>
           </div>
-          <button
-            className="button button-primary"
-            onClick={() => openForm({ section, item: null })}
-            type="button"
-          >
-            <span aria-hidden="true">+</span> Ajouter {section === "achats" ? "un achat" : section === "produits" ? "un produit" : "un fournisseur"}
-          </button>
+          {isEntitySection(section) && (
+            <button
+              className="button button-primary"
+              onClick={() => openForm({ section, item: null })}
+              type="button"
+            >
+              <span aria-hidden="true">+</span> Ajouter {section === "achats" ? "un achat" : section === "produits" ? "un produit" : "un fournisseur"}
+            </button>
+          )}
         </header>
 
         <div className="page-meta">
-          <span>{count} {count === 1 ? "élément" : "éléments"}</span>
+          {section !== "admin-technique" && <span>{count} {count === 1 ? "élément" : "éléments"}</span>}
           <span className="meta-divider" />
           <span>Synchronisé avec l’API</span>
         </div>
@@ -271,6 +363,36 @@ export default function App() {
               <h2>Connexion à l’API impossible</h2>
               <p>Démarrez le serveur Django, puis réessayez.</p>
             </div>
+          ) : section === "suivi-achats" ? (
+            <PurchaseBoard
+              onDateChange={changePurchaseDate}
+              onMove={movePurchase}
+              purchases={boardPurchases}
+            />
+          ) : section === "admin-technique" ? (
+            <form className="settings-form" onSubmit={(event) => void saveSettings(event)}>
+              <h2>Achats reçus</h2>
+              <p>
+                Les achats reçus sont masqués du tableau de suivi après cette durée.
+                Ils restent disponibles dans la liste « Achats ».
+              </p>
+              <label className="field" htmlFor="retention-days">
+                Durée de conservation dans le suivi (jours)
+                <input
+                  id="retention-days"
+                  max="3650"
+                  min="1"
+                  onChange={(event) => setRetentionDays(event.target.value)}
+                  required
+                  type="number"
+                  value={retentionDays}
+                />
+                <span className="field-hint">Valeur autorisée : 1 à 3 650 jours.</span>
+              </label>
+              <button className="button button-primary" disabled={savingSettings} type="submit">
+                {savingSettings ? "Enregistrement…" : "Enregistrer"}
+              </button>
+            </form>
           ) : count === 0 ? (
             <div className="empty-state">
               <div className="empty-icon">＋</div>
@@ -359,8 +481,118 @@ export default function App() {
   );
 }
 
+interface PurchaseBoardProps {
+  purchases: Purchase[];
+  onMove: (purchase: Purchase, status: PurchaseStatus) => void;
+  onDateChange: (
+    purchase: Purchase,
+    status: PurchaseStatus,
+    value: string,
+  ) => void;
+}
+
+function PurchaseBoard({ purchases, onMove, onDateChange }: PurchaseBoardProps) {
+  const statuses: PurchaseStatus[] = ["planned", "ordered", "received"];
+  const dateFields = {
+    planned: "planned_date",
+    ordered: "ordered_date",
+    received: "received_date",
+  } as const;
+
+  return (
+    <div className="kanban-board">
+      {statuses.map((status) => {
+        const statusPurchases = purchases.filter((purchase) => purchase.status === status);
+        return (
+          <section
+            aria-label={`${statusLabels[status]} : ${statusPurchases.length} achats`}
+            className="kanban-column"
+            key={status}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => {
+              event.preventDefault();
+              const purchaseId = Number(event.dataTransfer.getData("text/plain"));
+              const purchase = purchases.find((item) => item.id === purchaseId);
+              if (purchase) onMove(purchase, status);
+            }}
+          >
+            <header className={`kanban-column-header status-${status}`}>
+              <h2>{statusLabels[status]}</h2>
+              <span>{statusPurchases.length}</span>
+            </header>
+            <div className="kanban-cards">
+              {statusPurchases.length === 0 ? (
+                <p className="kanban-empty">Déposez un achat ici.</p>
+              ) : (
+                statusPurchases.map((purchase) => (
+                  <article
+                    className="purchase-card"
+                    draggable
+                    key={purchase.id}
+                    onDragStart={(event) => {
+                      event.dataTransfer.setData("text/plain", String(purchase.id));
+                      event.dataTransfer.effectAllowed = "move";
+                    }}
+                  >
+                    <div className="purchase-card-heading">
+                      <strong>Achat #{purchase.id}</strong>
+                      <span className="amount-cell">{formatMoney(purchase.total)}</span>
+                    </div>
+                    <p className="purchase-card-supplier">{purchase.supplier_name}</p>
+                    <ul className="purchase-card-lines">
+                      {purchase.lines.map((line) => (
+                        <li key={line.id}>
+                          <span>{line.product_name}</span>
+                          <span>{line.quantity}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    {purchase.notes && <p className="purchase-card-notes">{purchase.notes}</p>}
+                    <label className="field purchase-card-date">
+                      Date {statusLabels[status].toLowerCase()}
+                      <input
+                        aria-label={`Date ${statusLabels[status].toLowerCase()} achat #${purchase.id}`}
+                        onChange={(event) => onDateChange(purchase, status, event.target.value)}
+                          max={status === "received" ? localDateString(new Date()) : undefined}
+                          type="date"
+                        value={purchase[dateFields[status]] ?? ""}
+                      />
+                    </label>
+                    <label className="field purchase-card-move">
+                      Déplacer vers
+                      <select
+                        aria-label={`Déplacer l’achat #${purchase.id}`}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          if (value === "planned" || value === "ordered" || value === "received") {
+                            onMove(purchase, value);
+                          }
+                        }}
+                        value=""
+                      >
+                        <option disabled value="">Choisir un statut</option>
+                        {statuses
+                          .filter((targetStatus) => targetStatus !== status)
+                          .map((targetStatus) => (
+                            <option key={targetStatus} value={targetStatus}>
+                              {statusLabels[targetStatus]}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                  </article>
+                ))
+              )}
+            </div>
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
 interface EntityFormProps {
-  section: Section;
+  section: EntitySection;
   initial: Supplier | Product | Purchase | null;
   suppliers: Supplier[];
   products: Product[];
@@ -400,7 +632,7 @@ function EntityForm({
     return {
       supplier: existing?.supplier ?? (suppliers[0]?.id ?? 0),
       status: existing?.status ?? "planned",
-      planned_date: existing?.planned_date ?? "",
+      planned_date: existing?.planned_date ?? localDateString(new Date()),
       ordered_date: existing?.ordered_date ?? "",
       received_date: existing?.received_date ?? "",
       notes: existing?.notes ?? "",
@@ -532,30 +764,38 @@ function EntityForm({
                   </select>
                   {suppliers.length === 0 && <span className="field-hint">Créez d’abord un fournisseur.</span>}
                 </label>
-                <label className="field">
+                <div className="field">
                   Statut
-                  <select onChange={(event) => {
-                    const value = event.target.value;
-                    if (value === "planned" || value === "ordered" || value === "received") {
-                      setPurchase({ ...purchase, status: value });
-                    }
-                  }} value={purchase.status}>
-                    <option value="planned">À prévoir</option>
-                    <option value="ordered">Commandé</option>
-                    <option value="received">Reçu</option>
-                  </select>
-                </label>
+                  <span className={`status-badge status-${purchase.status}`}>
+                    {statusLabels[purchase.status]}
+                  </span>
+                </div>
                 <label className="field">
-                  Date prévue
-                  <input onChange={(event) => setPurchase({ ...purchase, planned_date: event.target.value })} type="date" value={purchase.planned_date ?? ""} />
-                </label>
-                <label className="field">
-                  Date de commande
-                  <input onChange={(event) => setPurchase({ ...purchase, ordered_date: event.target.value })} type="date" value={purchase.ordered_date ?? ""} />
-                </label>
-                <label className="field">
-                  Date de réception
-                  <input onChange={(event) => setPurchase({ ...purchase, received_date: event.target.value })} type="date" value={purchase.received_date ?? ""} />
+                  Date {statusLabels[purchase.status].toLowerCase()}
+                  {purchase.status === "planned" && (
+                    <input
+                      onChange={(event) => setPurchase({ ...purchase, planned_date: event.target.value })}
+                      required
+                      type="date"
+                      value={purchase.planned_date ?? ""}
+                    />
+                  )}
+                  {purchase.status === "ordered" && (
+                    <input
+                      onChange={(event) => setPurchase({ ...purchase, ordered_date: event.target.value })}
+                      required
+                      type="date"
+                      value={purchase.ordered_date ?? ""}
+                    />
+                  )}
+                  {purchase.status === "received" && (
+                    <input
+                      onChange={(event) => setPurchase({ ...purchase, received_date: event.target.value })}
+                      required
+                      type="date"
+                      value={purchase.received_date ?? ""}
+                    />
+                  )}
                 </label>
                 <div className="field field-full">
                   <div className="line-heading">

@@ -29,6 +29,10 @@ export interface PurchaseLine {
 
 export type PurchaseStatus = "planned" | "ordered" | "received";
 
+export interface TechnicalSettings {
+  received_purchase_retention_days: number;
+}
+
 export interface Purchase {
   id: number;
   supplier: number;
