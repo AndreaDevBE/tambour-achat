@@ -15,7 +15,7 @@ Language Python / Django
 
 ### Frontend 
 
-Language Python / Framework de ton choix
+React / TypeScript / Vite, dans le dossier `frontend/`.
 
 ## Principal fonctionnalité
 
@@ -58,3 +58,17 @@ L'API JSON est disponible sous `http://127.0.0.1:8000/api/` :
 La création ou la mise à jour d'un achat accepte les lignes dans le champ `lines`. Chaque ligne référence un produit et contient une quantité strictement positive et un prix unitaire positif ou nul. Le total est calculé par l'API. Pour lancer les tests : `python manage.py test`.
 
 Cette API de développement n'est pas authentifiée. Ne pas exposer le serveur à un réseau non fiable sans ajouter l'authentification et une configuration de production.
+
+## Démarrer le frontend
+
+Le frontend d'administration utilise l'API Django existante. Démarrez d'abord le backend selon les étapes ci-dessus, puis dans un autre terminal :
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Ouvrez l'adresse locale affichée par Vite (par défaut `http://localhost:5173`). En développement, Vite transmet les requêtes `/api/` au backend sur `http://127.0.0.1:8000`. Pour cibler une autre API lors d'un build ou en prévisualisation, définissez `VITE_API_BASE_URL` vers l'URL de base de l'API, par exemple `https://example.test/api`.
+
+L'interface permet de gérer les fournisseurs, produits et achats (y compris les lignes d'achat et les statuts). Elle n'ajoute pas d'authentification : comme l'API, elle est réservée à un usage local/de développement et ne doit pas être exposée à un réseau non fiable.
