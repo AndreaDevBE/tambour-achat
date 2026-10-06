@@ -36,6 +36,16 @@ Ils devront évoluer selon les ventes.
 
 Réprésente les ventes des éléments en stock le plus souvent des élements fabriqué. 
 
+## Démarrer le backend et le frontend (Windows)
+
+Après avoir installé une fois les dépendances backend et frontend selon les sections ci-dessous, exécutez depuis la racine du projet :
+
+```powershell
+powershell.exe -ExecutionPolicy Bypass -File .\start-app.ps1
+```
+
+La stratégie `Bypass` ne s'applique qu'à ce processus PowerShell et ne modifie pas la stratégie enregistrée sur la machine. Le script applique les migrations Django puis ouvre le backend et le frontend dans deux fenêtres de terminal distinctes. Il utilise `.venv\Scripts\python.exe` si cet environnement existe, sinon le Python disponible dans le `PATH`. Les dépendances frontend doivent déjà être installées dans `frontend\node_modules`.
+
 ## Démarrer le backend
 
 Le backend est dans le dossier `backend/`. Il utilise Django, Django REST Framework et SQLite.
